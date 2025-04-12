@@ -10,11 +10,12 @@ from tensorflow.keras.layers import Dense
 import datetime
 import pytz
 from pvlib import solarposition
-import pandas as pd as pd_pvlib
+import pvlib
+import pandas as pd 
 import joblib  # For saving the scaler
 
 # --- Serial Port Configuration ---
-SERIAL_PORT = 'YOUR_COM_PORT'  # Replace with your ESP32's serial port
+SERIAL_PORT = 'COM6'  # Replace with your ESP32's serial port
 BAUD_RATE = 115200
 
 # --- File Names for Model and Scaler ---
