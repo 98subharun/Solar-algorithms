@@ -11,7 +11,6 @@ import datetime
 import pytz
 from pvlib import solarposition
 import pvlib
-import pandas as pd 
 import joblib  # For saving the scaler
 
 # --- Serial Port Configuration ---
@@ -136,7 +135,7 @@ if __name__ == "__main__":
                                     now_local = now_utc.astimezone(greater_noida_tz)
                                     current_day = now_local.timetuple().tm_yday
 
-                                    times = pvlib.DatetimeIndex([now_local], tz=greater_noida_tz)
+                                    times = pd.DatetimeIndex([now_local], tz=greater_noida_tz)
                                     solpos = solarposition.get_solarposition(times, latitude=28.6139, longitude=77.2090)
                                     solar_azimuth = solpos['azimuth'][0]
 
