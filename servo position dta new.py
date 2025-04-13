@@ -39,6 +39,9 @@ while current_time <= end_date:
         optimal_angle_1 = optimal_angle + np.random.normal(0, 1)
         optimal_angle_2 = optimal_angle - np.random.normal(0, 1)
 
+        # Simulate humidity (in percentage)
+        humidity = 50 + 10 * np.sin(2 * np.pi * current_time.timetuple().tm_yday / 365) + 5 * np.random.randn()
+       
         data.append([
             current_time,
             temperature,
