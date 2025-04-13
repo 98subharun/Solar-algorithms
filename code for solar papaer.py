@@ -10,16 +10,26 @@ from tensorflow.keras.layers import Dense
 import datetime
 import pytz
 from pvlib import solarposition
+import pandas as pd 
 import pvlib
 import joblib  # For saving the scaler
+import meteostat
+from meteostat import Point, Hourly
+
 
 # --- Serial Port Configuration ---
-SERIAL_PORT = 'COM6'  # Replace with your ESP32's serial port
+SERIAL_PORT = 'COM6'  # Replace with your ESP32's serial port, i used a external usb extender
 BAUD_RATE = 115200
 
 # --- File Names for Model and Scaler ---
-MODEL_FILE = 'solar_tracker_model.h5'
-SCALER_FILE = 'feature_scaler.joblib'
+MODEL_FILE = 'solar_tracker_model_meteostat.h5'
+SCALER_FILE = 'feature_scaler_meteostat.joblib'
+
+# --- Location for Meteostat and Solar Position ---
+LATITUDE = 25.5941 
+LONGITUDE = 84.8007  
+METEOSTAT_LOCATION = Point(LATITUDE, LONGITUDE)
+LOCAL_TIMEZONE = pytz.timezone('Asia/Kolkata')
 
 # --- Define Features and Targets for Training ---
 FEATURES = [
@@ -105,52 +115,74 @@ if __name__ == "__main__":
         trained_scaler = scaler
 
     except FileNotFoundError:
-        print("Error: servo_position_dataset.csv not found. Please generate this file first.")
+        print("Error: servo_position_dataset.csv not found. Please generate this file first using Meteostat.")
     except Exception as e:
         print(f"An error occurred during training: {e}")
 
-    # --- Real-time Prediction with ESP32 Data ---
-    print("\n--- Real-time Prediction from ESP32 ---")
+    # --- Real-time Prediction with ESP32 and Meteostat Data ---
+    print("\n--- Real-time Prediction from ESP32 and Meteostat ---")
     if trained_model is not None and trained_scaler is not None:
         try:
             ser = serial.Serial(SERIAL_PORT, BAUD_RATE)
             print(f"Connected to ESP32 on {SERIAL_PORT}")
 
-            greater_noida_tz = pytz.timezone('Asia/Kolkata')
-
             while True:
+                # Get current time in local timezone
+                now_local = datetime.datetime.now(LOCAL_TIMEZONE)
+                now_utc = now_local.astimezone(pytz.utc)
+                current_day = now_local.timetuple().tm_yday
+
+                # Fetch current weather data from Meteostat
+                hourly_data = Hourly(METEOSTAT_LOCATION, now_utc, now_utc)
+                weather_data = hourly_data.fetch()
+
+                realtime_wind_speed = np.nan
+                realtime_wind_direction = np.nan
+                realtime_temperature = np.nan
+                realtime_humidity = np.nan
+
+                if not weather_data.empty:
+                    realtime_wind_speed = weather_data['wspd'].iloc[0]
+                    realtime_wind_direction = weather_data['wdir'].iloc[0]
+                    realtime_temperature = weather_data['temp'].iloc[0]
+                    realtime_humidity = weather_data['rhum'].iloc[0]
+
+                # Calculate current solar azimuth
+                times = pvlib.DatetimeIndex([now_utc], tz='UTC')
+                solpos = solarposition.get_solarposition(times, latitude=LATITUDE, longitude=LONGITUDE)
+                solar_azimuth = solpos['azimuth'][0]
+
+                
                 if ser.in_waiting > 0:
                     try:
                         line = ser.readline().decode('utf-8').strip()
                         if line.startswith("S,"):
                             sensor_data = line[2:].split(',')
-                            if len(sensor_data) == 4:
+                            if len(sensor_data) == 2:  # Expecting temperature and humidity from ESP32
                                 try:
-                                    temperature = float(sensor_data[0])
-                                    humidity = float(sensor_data[1])
-                                    wind_speed = float(sensor_data[2])
-                                    wind_direction = float(sensor_data[3])
+                                    temperature_esp = float(sensor_data[0])
+                                    humidity_esp = float(sensor_data[1])
 
-                                    now_utc = datetime.datetime.now(pytz.utc)
-                                    now_local = now_utc.astimezone(greater_noida_tz)
-                                    current_day = now_local.timetuple().tm_yday
+                                    # Use Meteostat data if available, otherwise ESP32 data
+                                    temperature_nn = realtime_temperature if not np.isnan(realtime_temperature) else temperature_esp
+                                    humidity_nn = realtime_humidity if not np.isnan(realtime_humidity) else humidity_esp
 
-                                    times = pd.DatetimeIndex([now_local], tz=greater_noida_tz)
-                                    solpos = solarposition.get_solarposition(times, latitude=28.6139, longitude=77.2090)
-                                    solar_azimuth = solpos['azimuth'][0]
+                                    if not np.isnan(realtime_wind_speed) and not np.isnan(realtime_wind_direction):
+                                        angle1, angle2 = predict_angles(trained_model, trained_scaler, now_local, current_day, temperature_nn, humidity_nn, realtime_wind_speed, realtime_wind_direction, solar_azimuth)
 
-                                    angle1, angle2 = predict_angles(trained_model, trained_scaler, now_local, current_day, temperature, humidity, wind_speed, wind_direction, solar_azimuth)
-
-                                    angle_command = f"A,{angle1:.2f},{angle2:.2f}\n".encode('utf-8')
-                                    ser.write(angle_command)
-                                    print(f"Received Sensor Data: Temp={temperature:.2f}, Hum={humidity:.2f}, WindSpeed={wind_speed:.2f}, WindDir={wind_direction:.2f}")
-                                    print(f"Calculated Solar Azimuth: {solar_azimuth:.2f}")
-                                    print(f"Sent Predicted Angles: Servo1={angle1:.2f}, Servo2={angle2:.2f}")
+                                        angle_command = f"A,{angle1:.2f},{angle2:.2f}\n".encode('utf-8')
+                                        ser.write(angle_command)
+                                        print(f"ESP32 Data: Temp={temperature_esp:.2f}, Hum={humidity_esp:.2f}")
+                                        print(f"Meteostat Data: Temp={realtime_temperature:.2f}, Hum={realtime_humidity:.2f}, Wind Speed={realtime_wind_speed:.2f}, Wind Dir={realtime_wind_direction:.2f}")
+                                        print(f"Calculated Solar Azimuth: {solar_azimuth:.2f}")
+                                        print(f"Sent Predicted Angles: Servo1={angle1:.2f}, Servo2={angle2:.2f}")
+                                    else:
+                                        print("Waiting for wind data from Meteostat...")
 
                                 except ValueError as e:
                                     print(f"Error converting sensor data: {e} - Data: {sensor_data}")
                             else:
-                                print(f"Incomplete sensor data received: {line}")
+                                print(f"Incomplete sensor data received (expecting Temp, Hum): {line}")
                         else:
                             print(f"Received from ESP32: {line}")
 
@@ -160,7 +192,7 @@ if __name__ == "__main__":
                     except UnicodeDecodeError as e:
                         print(f"Error decoding data from ESP32: {e}")
 
-                time.sleep(0.1)
+                time.sleep(10)  # Adjust as needed
 
         except serial.SerialException as e:
             print(f"Error opening serial port {SERIAL_PORT}: {e}")
