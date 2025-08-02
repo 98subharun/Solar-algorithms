@@ -16,22 +16,20 @@ import joblib  # For saving the scaler
 import meteostat
 from meteostat import Point, Hourly
 
-
-# --- Serial Port Configuration ---
-SERIAL_PORT = 'COM6'  # Replace with your ESP32's serial port, i used a external usb extender
+SERIAL_PORT = 'COM6'  
 BAUD_RATE = 115200
 
-# --- File Names for Model and Scaler ---
+
 MODEL_FILE = 'solar_tracker_model_meteostat.h5'
 SCALER_FILE = 'feature_scaler_meteostat.joblib'
 
-# --- Location for Meteostat and Solar Position ---
+
 LATITUDE = 25.5941 
 LONGITUDE = 84.8007  
 METEOSTAT_LOCATION = Point(LATITUDE, LONGITUDE)
 LOCAL_TIMEZONE = pytz.timezone('Asia/Kolkata')
 
-# --- Define Features and Targets for Training ---
+
 FEATURES = [
     'time_of_day_sin',
     'time_of_day_cos',
@@ -45,7 +43,7 @@ FEATURES = [
 ]
 TARGETS = ['Optimal Angle Panel 1', 'Optimal Angle Panel 2']
 
-# --- Function to Create Neural Network Model ---
+
 def create_model(input_shape, num_targets):
     model = Sequential([
         Dense(64, activation='relu', input_shape=input_shape),
@@ -56,7 +54,7 @@ def create_model(input_shape, num_targets):
     model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
     return model
 
-# --- Function to Predict Angles ---
+
 def predict_angles(model, scaler, current_time, current_day_of_year, temperature, humidity, wind_speed, wind_direction, solar_azimuth):
     max_seconds = 24 * 3600
     sin_time = np.sin(2 * np.pi * (current_time.hour * 3600 + current_time.minute * 60 + current_time.second) / max_seconds)
@@ -71,7 +69,6 @@ def predict_angles(model, scaler, current_time, current_day_of_year, temperature
     return predicted_angles[0][0], predicted_angles[0][1]
 
 if __name__ == "__main__":
-    # --- Training Section ---
     print("--- Neural Network Training ---")
     trained_model = None
     trained_scaler = None
@@ -119,8 +116,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"An error occurred during training: {e}")
 
-    # --- Real-time Prediction with ESP32 and Meteostat Data ---
-    print("\n--- Real-time Prediction from ESP32 and Meteostat ---")
+    print("\nReal-time Prediction from ESP32 and Meteostat")
     if trained_model is not None and trained_scaler is not None:
         try:
             ser = serial.Serial(SERIAL_PORT, BAUD_RATE)
@@ -132,7 +128,7 @@ if __name__ == "__main__":
                 now_utc = now_local.astimezone(pytz.utc)
                 current_day = now_local.timetuple().tm_yday
 
-                # Fetch current weather data from Meteostat
+            
                 hourly_data = Hourly(METEOSTAT_LOCATION, now_utc, now_utc)
                 weather_data = hourly_data.fetch()
 
@@ -147,7 +143,7 @@ if __name__ == "__main__":
                     realtime_temperature = weather_data['temp'].iloc[0]
                     realtime_humidity = weather_data['rhum'].iloc[0]
 
-                # Calculate current solar azimuth
+          
                 times = pvlib.DatetimeIndex([now_utc], tz='UTC')
                 solpos = solarposition.get_solarposition(times, latitude=LATITUDE, longitude=LONGITUDE)
                 solar_azimuth = solpos['azimuth'][0]
@@ -163,7 +159,7 @@ if __name__ == "__main__":
                                     temperature_esp = float(sensor_data[0])
                                     humidity_esp = float(sensor_data[1])
 
-                                    # Use Meteostat data if available, otherwise ESP32 data
+                                  
                                     temperature_nn = realtime_temperature if not np.isnan(realtime_temperature) else temperature_esp
                                     humidity_nn = realtime_humidity if not np.isnan(realtime_humidity) else humidity_esp
 
