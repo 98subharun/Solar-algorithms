@@ -28,7 +28,7 @@ while current_time <= end_date:
       
         temperature = 20 + 15 * np.sin(2 * np.pi * current_time.timetuple().tm_yday / 365 + np.pi / 2) + 5 * np.random.randn()
         humidity = 60 + 20 * np.cos(2 * np.pi * current_time.timetuple().tm_yday / 365 + np.pi) + 10 * np.random.randn()
-        humidity = np.clip(humidity, 0, 100) # Ensure humidity is within a realistic range
+        humidity = np.clip(humidity, 0, 100) # Ensuring humidity is within a realistic range
         wind_speed = 2 + 3 * np.random.rand()
         wind_direction = np.random.randint(0, 360)
 
